@@ -11,9 +11,9 @@ exports.onExecutePostLogin = async (event, api) => {
     const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MEMBERS], fetchAllMembers: true });
 
     const DISCORD_PREFIX = "oauth2|discord|"
-    const DISCORD_KEY = ""
-    const SANITY_TOKEN = ""
-    const SANITY_ID = ""
+    const DISCORD_KEY = "xxx"
+    const SANITY_TOKEN = "xxx"
+    const SANITY_ID = "xxx"
     const STRIPPED_USER_ID = event.user.user_id.replace(DISCORD_PREFIX, '')
 
     const sanityClient = sanity({
@@ -72,7 +72,11 @@ exports.onExecutePostLogin = async (event, api) => {
         // Check roles
         let assignedRoles = []
         memberObject._roles.forEach(aR => {
-            let tempRole = roles.find(r => r.id == aR)
+            let tempRole = roles.find(r => {
+                if (r.id == aR) {
+                    return r
+                }
+            })
             if (tempRole) {
                 assignedRoles.push(tempRole.name)
             }
@@ -88,6 +92,5 @@ exports.onExecutePostLogin = async (event, api) => {
 * @param {Event} event - Details about the user and the context in which they are logging in.
 * @param {PostLoginAPI} api - Interface whose methods can be used to change the behavior of the login.
 */
-
-// exports.onContinuePostLogin = async (event, api) => {
-// };
+  // exports.onContinuePostLogin = async (event, api) => {
+  // };
