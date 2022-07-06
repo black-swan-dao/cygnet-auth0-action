@@ -7,14 +7,24 @@
 exports.onExecutePostLogin = async (event, api) => {
     const sanity = require('@sanity/client')
     const slug = require('slug')
+    const _ = require('lodash')
+    const SimpleCrypto = require("simple-crypto-js").default
     const { Client, Intents } = require('discord.js');
     const client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_MEMBERS], fetchAllMembers: true });
+    const { WebClient } = require('@slack/web-api');
+
+    const IS_SLACK = event.connection.name === "slack"
+
+    const SLACK_PREFIX = "oauth2|slack|"
+    const ENCRYPTION_SECRET = "XXXXX"
 
     const DISCORD_PREFIX = "oauth2|discord|"
-    const DISCORD_KEY = "xxx"
-    const SANITY_TOKEN = "xxx"
-    const SANITY_ID = "xxx"
-    const STRIPPED_USER_ID = event.user.user_id.replace(DISCORD_PREFIX, '')
+    const DISCORD_KEY = "XXXXX"
+
+    const SANITY_TOKEN = "XXXXX"
+    const SANITY_ID = "XXXXX"
+
+    const STRIPPED_USER_ID = IS_SLACK ? event.user.user_id.replace(SLACK_PREFIX, '') : event.user.user_id.replace(DISCORD_PREFIX, '')
 
     const sanityClient = sanity({
         projectId: SANITY_ID,
@@ -27,6 +37,7 @@ exports.onExecutePostLogin = async (event, api) => {
         const doc = {
             _type: 'user',
             _id: STRIPPED_USER_ID + '-' + instance._id,
+            connection: IS_SLACK ? 'slack' : 'discord',
             name: event.user.name,
             avatarURL: event.user.picture,
             instance: {
@@ -48,40 +59,58 @@ exports.onExecutePostLogin = async (event, api) => {
         api.access.deny(msg)
     }
 
-    await client.login(DISCORD_KEY);
-
     const instance = await sanityClient.fetch('*[_type == "instance" && auth0ClientId == $clientId][0]', { clientId: event.client.client_id })
 
-    // Get all guilds the bot is in
-    const selectedGuild = await client.guilds.fetch(instance.discordGuildId)
-    if (!selectedGuild) {
-        deny('The Cygnet bot has not been added to the Discord server.');
-    }
-    const members = await selectedGuild.members.fetch()
+    if (IS_SLACK) {
+        const SLACK_WORKSPACE_ID = STRIPPED_USER_ID.split('-')[0]
+        const SLACK_USER_ID = STRIPPED_USER_ID.split('-')[1]
 
-    const memberIdList = members.map(m => m.user.id)
+        const simpleCrypto = new SimpleCrypto(ENCRYPTION_SECRET)
+        const SLACK_TOKEN = simpleCrypto.decrypt(instance.slackToken)
+        const slackClient = new WebClient(SLACK_TOKEN)
 
-    // Deny access if not a member
-    if (!memberIdList.includes(STRIPPED_USER_ID)) {
-        deny('You need to be a member of the Discord to login.');
+        const users = await slackClient.users.list()
+        const user = users.members.find(u => u.id === SLACK_USER_ID)
+        const roles = user.is_admin ? ['cygnet-admin'] : []
+        if (SLACK_WORKSPACE_ID !== instance.slackWorkspaceId) {
+            deny('You need to be a member of the Slack workspace to login.');
+        } else {
+            writeToDatabase(roles)
+        }
     } else {
-        // Get user
-        let memberObject = members.find(m => m.user.id == STRIPPED_USER_ID)
-        // Get roles
-        let roles = await selectedGuild.roles.fetch()
-        // Check roles
-        let assignedRoles = []
-        memberObject._roles.forEach(aR => {
-            let tempRole = roles.find(r => {
-                if (r.id == aR) {
-                    return r
+        await client.login(DISCORD_KEY);
+
+        // Get all guilds the bot is in
+        const selectedGuild = await client.guilds.fetch(instance.discordGuildId)
+        if (!selectedGuild) {
+            deny('The Cygnet bot has not been added to the Discord server.');
+        }
+        const members = await selectedGuild.members.fetch()
+
+        const memberIdList = members.map(m => m.user.id)
+
+        // Deny access if not a member
+        if (!memberIdList.includes(STRIPPED_USER_ID)) {
+            deny('You need to be a member of the Discord to login.');
+        } else {
+            // Get user
+            let memberObject = members.find(m => m.user.id == STRIPPED_USER_ID)
+            // Get roles
+            let roles = await selectedGuild.roles.fetch()
+            // Check roles
+            let assignedRoles = []
+            memberObject._roles.forEach(aR => {
+                let tempRole = roles.find(r => {
+                    if (r.id == aR) {
+                        return r
+                    }
+                })
+                if (tempRole) {
+                    assignedRoles.push(tempRole.name)
                 }
             })
-            if (tempRole) {
-                assignedRoles.push(tempRole.name)
-            }
-        })
-        writeToDatabase(assignedRoles)
+            writeToDatabase(assignedRoles)
+        }
     }
 };
 
